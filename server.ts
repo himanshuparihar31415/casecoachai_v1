@@ -54,7 +54,6 @@ async function startServer(): Promise<void> {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Case Coach AI backend running on port ${PORT}`);
     console.log(`   Environment: ${env.NODE_ENV}`);
-    console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
     // Connect to DB after HTTP server is up so healthcheck passes immediately
     connectDB().catch((err) => {
       console.error('Failed to connect to MongoDB:', err);
