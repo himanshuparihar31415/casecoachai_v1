@@ -1,0 +1,276 @@
+import { Case, ICase, CaseType, Industry } from '../../models/Case.js';
+import { AppError } from '../../middleware/errorHandler.js';
+import { generateCaseWithAI } from '../../ai/client.js';
+
+interface CaseFilter {
+  type?: CaseType;
+  industry?: Industry;
+  difficulty?: number;
+  tab?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function listCases(filter: CaseFilter): Promise<{ cases: ICase[]; total: number }> {
+  const query: Record<string, unknown> = {};
+  if (filter.type) query.type = filter.type;
+  if (filter.industry) query.industry = filter.industry;
+  if (filter.difficulty) query.difficulty = Number(filter.difficulty);
+
+  const page = filter.page ?? 1;
+  const limit = filter.limit ?? 12;
+  const skip = (page - 1) * limit;
+
+  const [cases, total] = await Promise.all([
+    Case.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Case.countDocuments(query),
+  ]);
+
+  return { cases, total };
+}
+
+export async function getCaseById(id: string): Promise<ICase> {
+  const c = await Case.findById(id);
+  if (!c) throw new AppError(404, 'Case not found');
+  return c;
+}
+
+export async function generateCase(
+  type: CaseType,
+  industry: Industry,
+  difficulty: number
+): Promise<ICase> {
+  const generated = await generateCaseWithAI(type, industry, difficulty);
+  return Case.create({ ...generated, isSeeded: false });
+}
+
+export async function seedCases(): Promise<number> {
+  const existing = await Case.countDocuments({ isSeeded: true });
+  if (existing > 0) return existing;
+
+  await Case.insertMany(SEEDED_CASES);
+  return SEEDED_CASES.length;
+}
+
+const SEEDED_CASES = [
+  {
+    title: 'Declining Profits at Global Coffee Chain',
+    type: 'profitability',
+    industry: 'retail',
+    difficulty: 2,
+    description: 'A leading global coffee chain has seen its net profit margin drop from 18% to 11% over two years. The CEO has asked you to diagnose the issue and recommend a path forward.',
+    scenario: 'Your client, BrewWorld, operates 8,000 cafes across 45 countries. Revenue has remained flat at $12B, but profitability has eroded significantly. Leadership suspects rising input costs but wants a structured analysis before acting.',
+    keyDataPoints: [
+      { label: 'Annual Revenue', value: '$12B' },
+      { label: 'Net Margin (Now)', value: '11%' },
+      { label: 'Net Margin (2 yrs ago)', value: '18%' },
+      { label: 'Total Cafes', value: '8,000' },
+      { label: 'Avg Ticket Size', value: '$7.20' },
+    ],
+    questions: [
+      'How would you structure your analysis of the profitability decline?',
+      'Revenue seems flat — where would you look first, costs or revenue mix?',
+      'If COGS rose 3pp but SG&A is down, what does that tell you?',
+      'What would you recommend to recover 4pp of margin within 18 months?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'European Market Entry for US FinTech',
+    type: 'market_entry',
+    industry: 'finance',
+    difficulty: 3,
+    description: 'A US-based payments startup with $2B ARR is evaluating entry into Western Europe. Identify the right markets, go-to-market model, and key risks.',
+    scenario: 'PaySwift has dominated the US SMB payments market with a SaaS-first model. The board wants to enter Europe within 18 months. You need to advise on country prioritization, partnership vs. organic entry, and regulatory considerations including PSD2.',
+    keyDataPoints: [
+      { label: 'Current ARR', value: '$2B' },
+      { label: 'US Market Share', value: '14%' },
+      { label: 'EU Payments TAM', value: '$180B' },
+      { label: 'Available Capex', value: '$300M' },
+      { label: 'Target Launch', value: '18 months' },
+    ],
+    questions: [
+      'How do you prioritize which European countries to enter first?',
+      'What factors make organic entry vs. acquisition more attractive here?',
+      'How does PSD2 regulation change your go-to-market strategy?',
+      'What are the top 3 risks and how would you mitigate them?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Pharma Portfolio M&A Synergies',
+    type: 'ma',
+    industry: 'pharma',
+    difficulty: 4,
+    description: 'A top-10 pharma company is acquiring a mid-size oncology biotech. Quantify synergy potential and advise on integration prioritization.',
+    scenario: 'MediCorp ($40B market cap) is acquiring OncoGen ($8B deal value, 1.5x revenue multiple). The deal thesis rests on $1.2B in synergies over 5 years. You must validate this number and identify risks to integration.',
+    keyDataPoints: [
+      { label: 'Deal Value', value: '$8B' },
+      { label: 'OncoGen Revenue', value: '$5.2B' },
+      { label: 'Target Synergies', value: '$1.2B/yr by Y5' },
+      { label: 'R&D Pipeline Overlap', value: '3 assets' },
+      { label: 'Combined Sales Force', value: '12,000 reps' },
+    ],
+    questions: [
+      'How would you structure your synergy analysis?',
+      'Where do you see the highest-confidence synergies — cost or revenue?',
+      'What are the top integration risks you would flag to the CEO?',
+      'How would you sequence the integration over the first 100 days?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Growth Strategy for EV Charging Network',
+    type: 'growth',
+    industry: 'energy',
+    difficulty: 3,
+    description: 'A fast-growing EV charging network wants to 5x its station count in 3 years while maintaining unit economics. Design a growth strategy.',
+    scenario: 'ChargeUp operates 2,000 fast-charging stations in the US and is profitable at the unit level. With $500M in fresh funding, the board wants a plan to reach 10,000 stations. You need to recommend where, how, and in what sequence to expand.',
+    keyDataPoints: [
+      { label: 'Current Stations', value: '2,000' },
+      { label: 'Target Stations', value: '10,000 in 3 yrs' },
+      { label: 'Funding Available', value: '$500M' },
+      { label: 'Avg Station Cost', value: '$120K' },
+      { label: 'Avg Utilization', value: '38%' },
+    ],
+    questions: [
+      'What framework would you use to prioritize geographic expansion?',
+      'How does the $500M constrain or shape the growth sequencing?',
+      'At 38% utilization, do you grow density first or coverage first?',
+      'What partnerships would accelerate the network most efficiently?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'SaaS Pricing Redesign',
+    type: 'pricing',
+    industry: 'tech',
+    difficulty: 2,
+    description: 'A B2B SaaS company is moving from per-seat to usage-based pricing. Model the revenue impact and advise on rollout strategy.',
+    scenario: 'DataSync ($120M ARR, 800 enterprise customers) currently charges $150/seat/month. Competitors have moved to consumption-based models. Management wants to shift but fears short-term revenue loss. Your job is to advise on pricing architecture and transition plan.',
+    keyDataPoints: [
+      { label: 'Current ARR', value: '$120M' },
+      { label: 'Customers', value: '800 enterprise' },
+      { label: 'Avg Seats/Customer', value: '125 seats' },
+      { label: 'Current Price', value: '$150/seat/month' },
+      { label: 'NRR', value: '108%' },
+    ],
+    questions: [
+      'What are the pros and cons of moving to usage-based pricing?',
+      'How would you model the short-term vs. long-term revenue impact?',
+      'What customer segments benefit most from the new model?',
+      'How would you phase the rollout to minimize churn risk?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Supply Chain Bottleneck — Auto OEM',
+    type: 'operations',
+    industry: 'automotive',
+    difficulty: 3,
+    description: 'An automotive OEM is losing $2M/day due to a semiconductor shortage creating a production bottleneck. Develop an immediate action plan and long-term resilience strategy.',
+    scenario: 'AutoMaker produces 800 vehicles/day but is currently running at 55% capacity due to ECU chip shortages. The shortage is expected to last 9-18 months. Leadership needs both an emergency response and a structural fix.',
+    keyDataPoints: [
+      { label: 'Normal Output', value: '800 vehicles/day' },
+      { label: 'Current Output', value: '440 vehicles/day' },
+      { label: 'Revenue Loss/Day', value: '$2M' },
+      { label: 'Chip Suppliers', value: '2 primary' },
+      { label: 'Shortage Duration', value: '9-18 months' },
+    ],
+    questions: [
+      'What are your immediate actions in the first 30 days?',
+      'How do you prioritize which vehicle models to continue producing?',
+      'What structural changes prevent this vulnerability long-term?',
+      'How would you negotiate differently with semiconductor suppliers?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'CPG Brand Portfolio Profitability',
+    type: 'profitability',
+    industry: 'cpg',
+    difficulty: 2,
+    description: 'A CPG giant is reviewing its 120-brand portfolio after seeing overall margins drop. Advise on portfolio rationalization.',
+    scenario: 'ConsumerCo has 120 brands across food, beverage, and personal care. Overall EBIT margin fell from 19% to 15% in 3 years. The CFO suspects the long tail of small brands is dragging performance and wants a data-driven pruning framework.',
+    keyDataPoints: [
+      { label: 'Total Brands', value: '120' },
+      { label: 'Annual Revenue', value: '$35B' },
+      { label: 'EBIT Margin (Now)', value: '15%' },
+      { label: 'EBIT Margin (3 yrs ago)', value: '19%' },
+      { label: 'Top 10 brands revenue share', value: '65%' },
+    ],
+    questions: [
+      'What criteria would you use to evaluate each brand in the portfolio?',
+      'How do you handle brands with low profit but high strategic value?',
+      'What is the risk of divesting vs. discontinuing a brand?',
+      'How would you size the EBIT improvement opportunity?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Hospital Network Capacity Optimization',
+    type: 'operations',
+    industry: 'pharma',
+    difficulty: 3,
+    description: 'A regional hospital network is struggling with ER overcrowding and surgical suite underutilization — a costly paradox. Diagnose and fix it.',
+    scenario: 'HealthFirst operates 12 hospitals and 3 specialty centers. ERs are at 110% capacity causing ambulance diversions, while surgical suites run at 62%. Annual losses attributed to inefficiency total $180M. The CEO wants root causes and a restructuring plan.',
+    keyDataPoints: [
+      { label: 'Hospitals', value: '12 + 3 specialty' },
+      { label: 'ER Utilization', value: '110%' },
+      { label: 'Surgical Suite Utilization', value: '62%' },
+      { label: 'Efficiency Loss/yr', value: '$180M' },
+      { label: 'Annual Patient Volume', value: '2.1M' },
+    ],
+    questions: [
+      'What are the likely root causes of ER overcrowding despite under-used surgical suites?',
+      'How would you redesign patient flow across the network?',
+      'What quick wins could reduce ER pressure within 90 days?',
+      'How do you build a business case for the capital required?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Luxury EV Brand Market Entry — Southeast Asia',
+    type: 'market_entry',
+    industry: 'automotive',
+    difficulty: 4,
+    description: 'A European luxury EV brand wants to enter Southeast Asia. Prioritize markets, choose go-to-market model, and size the opportunity.',
+    scenario: 'LuxVolt (€18B revenue, 4% global EV share) is assessing SEA entry. The region has 680M people, varying infrastructure maturity, and government EV incentives ranging from strong (Thailand) to nascent (Vietnam). You have 12 months to make a recommendation.',
+    keyDataPoints: [
+      { label: 'Brand Revenue', value: '€18B globally' },
+      { label: 'SEA Population', value: '680M' },
+      { label: 'SEA EV Market Size', value: '$4.2B by 2027' },
+      { label: 'Avg Vehicle Price Target', value: '€65,000' },
+      { label: 'Priority Markets', value: '6 identified' },
+    ],
+    questions: [
+      'What framework guides country prioritization in a heterogeneous region?',
+      'Should LuxVolt enter via direct distribution, JV, or local partner?',
+      'How does charging infrastructure availability affect market sizing?',
+      'What is the revenue potential in your recommended lead market?',
+    ],
+    isSeeded: true,
+  },
+  {
+    title: 'Retail Bank Digital Transformation',
+    type: 'growth',
+    industry: 'finance',
+    difficulty: 3,
+    description: 'A traditional retail bank is losing customers to neobanks. Design a digital transformation growth strategy that defends the core and captures new segments.',
+    scenario: 'TrustBank ($280B AUM, 4.5M customers) has seen 180K customers leave for digital-only banks in 18 months. Customer acquisition cost is 3x industry average. The CEO wants a 3-year transformation roadmap that leverages the bank\'s branch network as an asset, not a liability.',
+    keyDataPoints: [
+      { label: 'AUM', value: '$280B' },
+      { label: 'Customers', value: '4.5M' },
+      { label: 'Customer Attrition', value: '180K in 18mo' },
+      { label: 'CAC vs. Neobank', value: '3x higher' },
+      { label: 'Branch Network', value: '620 branches' },
+    ],
+    questions: [
+      'What are the root causes of customer attrition to neobanks?',
+      'How do you convert 620 branches from cost centers to competitive advantages?',
+      'Which customer segments should you prioritize defending vs. acquiring?',
+      'How do you sequence tech investment vs. product investment over 3 years?',
+    ],
+    isSeeded: true,
+  },
+];

@@ -1,24 +1,47 @@
 import React, { useState } from 'react';
-import { X, Mail, Lock, ArrowRight, Github, Chrome } from 'lucide-react';
+import { X, Mail, Lock, User, ArrowRight, Github, Chrome, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/src/lib/utils';
+import { api } from '@/src/lib/api';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogin: () => void;
+  onLogin: (user: { name: string; email: string }) => void;
 }
 
 export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // In a real app, we would handle auth here
-    onLogin();
-    onClose();
+    setError('');
+    setLoading(true);
+
+    try {
+      const endpoint = mode === 'signin' ? '/api/auth/login' : '/api/auth/signup';
+      const body = mode === 'signin' ? { email, password } : { name, email, password };
+
+      const data = await api.post<{ token: string; user: { name: string; email: string } }>(endpoint, body);
+
+      localStorage.setItem('auth_token', data.token);
+      onLogin(data.user);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleModeSwitch = () => {
+    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setError('');
   };
 
   return (
@@ -32,14 +55,14 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
             onClick={onClose}
             className="absolute inset-0 bg-primary/40 backdrop-blur-sm"
           />
-          
+
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
           >
-            <button 
+            <button
               onClick={onClose}
               className="absolute top-6 right-6 p-2 rounded-full hover:bg-surface-container transition-colors text-secondary"
             >
@@ -52,18 +75,42 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
                   {mode === 'signin' ? 'Welcome Back' : 'Create Account'}
                 </h2>
                 <p className="font-body text-secondary text-sm">
-                  {mode === 'signin' 
-                    ? 'Sign in to continue your case preparation' 
+                  {mode === 'signin'
+                    ? 'Sign in to continue your case preparation'
                     : 'Join thousands of candidates mastering cases'}
                 </p>
               </div>
 
+              {error && (
+                <div className="flex items-center gap-2 bg-error/10 border border-error/20 text-error rounded-xl px-4 py-3 mb-4 text-sm font-body">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {error}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
+                {mode === 'signup' && (
+                  <div className="space-y-1">
+                    <label className="label-blueprint text-[10px] ml-1">Full Name</label>
+                    <div className="relative">
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-outline-variant" />
+                      <input
+                        type="text"
+                        required
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Jane Smith"
+                        className="w-full bg-surface-container-lowest border border-outline-variant/20 rounded-xl py-3 pl-12 pr-4 font-body text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   <label className="label-blueprint text-[10px] ml-1">Email Address</label>
                   <div className="relative">
                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-outline-variant" />
-                    <input 
+                    <input
                       type="email"
                       required
                       value={email}
@@ -78,7 +125,7 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
                   <label className="label-blueprint text-[10px] ml-1">Password</label>
                   <div className="relative">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-outline-variant" />
-                    <input 
+                    <input
                       type="password"
                       required
                       value={password}
@@ -97,12 +144,16 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
                   </div>
                 )}
 
-                <button 
+                <button
                   type="submit"
-                  className="w-full bg-primary text-white py-4 rounded-xl font-headline font-bold text-sm hover:bg-primary-container transition-all active:scale-95 flex items-center justify-center gap-2 mt-4"
+                  disabled={loading}
+                  className={cn(
+                    "w-full bg-primary text-white py-4 rounded-xl font-headline font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2 mt-4",
+                    loading ? "opacity-70 cursor-not-allowed" : "hover:bg-primary-container"
+                  )}
                 >
-                  {mode === 'signin' ? 'Sign In' : 'Create Account'}
-                  <ArrowRight className="w-4 h-4" />
+                  {loading ? 'Please wait…' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+                  {!loading && <ArrowRight className="w-4 h-4" />}
                 </button>
               </form>
 
@@ -129,8 +180,8 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
               <div className="mt-10 text-center">
                 <p className="text-sm text-secondary font-body">
                   {mode === 'signin' ? "Don't have an account?" : "Already have an account?"}{' '}
-                  <button 
-                    onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+                  <button
+                    onClick={handleModeSwitch}
                     className="text-on-tertiary-container font-bold hover:underline"
                   >
                     {mode === 'signin' ? 'Sign Up' : 'Sign In'}
