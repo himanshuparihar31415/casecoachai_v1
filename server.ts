@@ -33,6 +33,11 @@ async function startServer(): Promise<void> {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Stub signup for isolation test — remove once confirmed working
+  app.post('/api/auth/signup', (req, res) => {
+    res.status(200).json({ ok: true, body: req.body });
+  });
+
   // API routes
   app.use('/api/auth', authRoutes);
   app.use('/api/cases', caseRoutes);
@@ -54,10 +59,9 @@ async function startServer(): Promise<void> {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Case Coach AI backend running on port ${PORT}`);
     console.log(`   Environment: ${env.NODE_ENV}`);
-    // Connect to DB after HTTP server is up so healthcheck passes immediately
+    // Connect to DB after HTTP server is up — don't kill server on failure
     connectDB().catch((err) => {
-      console.error('Failed to connect to MongoDB:', err);
-      process.exit(1);
+      console.error('MongoDB connection failed (server stays up):', err.message);
     });
   });
 }
