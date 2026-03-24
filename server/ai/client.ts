@@ -1,0 +1,89 @@
+import OpenAI from 'openai';
+import { env } from '../config/env.js';
+import { CaseType, Industry } from '../models/Case.js';
+import { TranscriptEntry } from '../models/Session.js';
+import { CASE_GENERATION_PROMPT, HINT_PROMPT, SCORING_PROMPT } from './prompts.js';
+
+export const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+
+const TEXT_MODEL = 'gpt-4o';
+
+async function chatJSON<T>(systemPrompt: string, userPrompt: string): Promise<T> {
+  const response = await openai.chat.completions.create({
+    model: TEXT_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.7,
+  });
+  const text = response.choices[0]?.message?.content ?? '{}';
+  return JSON.parse(text) as T;
+}
+
+async function chat(systemPrompt: string, userPrompt: string): Promise<string> {
+  const response = await openai.chat.completions.create({
+    model: TEXT_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.7,
+  });
+  return response.choices[0]?.message?.content ?? '';
+}
+
+export async function generateCaseWithAI(type: CaseType, industry: Industry, difficulty: number) {
+  const prompt = CASE_GENERATION_PROMPT(type, industry, difficulty);
+  return chatJSON<{
+    title: string;
+    description: string;
+    scenario: string;
+    keyDataPoints: Array<{ label: string; value: string }>;
+    questions: string[];
+  }>(
+    'You are a McKinsey case interview designer. Return only valid JSON.',
+    prompt
+  );
+}
+
+export async function generateHintWithAI(transcript: TranscriptEntry[]): Promise<string> {
+  const transcriptText = transcript
+    .map((t) => `${t.role.toUpperCase()}: ${t.text}`)
+    .join('\n');
+  return chat(
+    'You are a senior McKinsey partner coaching a candidate. Be concise and coaching.',
+    HINT_PROMPT(transcriptText)
+  );
+}
+
+export async function generateScoringWithAI(
+  transcriptText: string,
+  caseTitle: string,
+  caseType: string
+) {
+  return chatJSON<{
+    overallScore: number;
+    overallGrade: 'STRONG_PASS' | 'PASS' | 'BORDERLINE' | 'FAIL';
+    competencies: {
+      structure: { score: number; flag?: string };
+      math: { score: number; flag?: string };
+      businessJudgment: { score: number; flag?: string };
+      communication: { score: number; flag?: string };
+      creativity: { score: number; flag?: string };
+      hypothesis: { score: number; flag?: string };
+    };
+    feedback: {
+      strengths: string[];
+      improvements: string[];
+      momentsOfExcellence: string[];
+      missedOpportunities: string[];
+      keyHypotheses: string[];
+    };
+    executiveSummary: string;
+  }>(
+    'You are an expert McKinsey case interview evaluator. Return only valid JSON.',
+    SCORING_PROMPT(transcriptText, caseTitle, caseType)
+  );
+}

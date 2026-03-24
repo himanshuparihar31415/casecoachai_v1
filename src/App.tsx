@@ -10,43 +10,69 @@ import Session from './pages/Session';
 import Report from './pages/Report';
 import Landing from './pages/Landing';
 import AuthModal from './components/auth/AuthModal';
+import { api } from './lib/api';
+
+interface AuthUser {
+  name: string;
+  email: string;
+}
 
 function AppContent() {
   const location = useLocation();
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('is_authenticated') === 'true';
-  });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  const handleLogin = () => {
-    setIsAuthenticated(true);
-    localStorage.setItem('is_authenticated', 'true');
+  // On mount, validate stored JWT with the backend
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setAuthChecked(true);
+      return;
+    }
+    api.get<{ user: AuthUser }>('/api/auth/me')
+      .then((data) => setUser(data.user))
+      .catch(() => {
+        // Token expired or invalid — clear it
+        localStorage.removeItem('auth_token');
+      })
+      .finally(() => setAuthChecked(false));
+
+    setAuthChecked(true);
+  }, []);
+
+  const handleLogin = (userData: AuthUser) => {
+    setUser(userData);
     setIsAuthModalOpen(false);
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    localStorage.removeItem('is_authenticated');
+    setUser(null);
+    localStorage.removeItem('auth_token');
   };
 
+  const isAuthenticated = user !== null;
   const isSession = location.pathname === '/session';
   const isLanding = location.pathname === '/';
 
-  // Redirect to dashboard if logged in and on landing
+  if (!authChecked) {
+    return null; // Brief loading flash while validating token
+  }
+
   if (isAuthenticated && isLanding) {
     return <Navigate to="/dashboard" replace />;
   }
 
   return (
     <div className="min-h-screen flex flex-col">
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={() => setIsAuthModalOpen(false)} 
-        onLogin={handleLogin} 
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLogin={handleLogin}
       />
-      <Navbar 
-        showTimer={isSession} 
-        isAuthenticated={isAuthenticated} 
+      <Navbar
+        showTimer={isSession}
+        isAuthenticated={isAuthenticated}
         onLogout={handleLogout}
         onLogin={() => setIsAuthModalOpen(true)}
       />
@@ -56,28 +82,27 @@ function AppContent() {
       )}>
         <Routes>
           <Route path="/" element={<Landing onOpenAuth={() => setIsAuthModalOpen(true)} />} />
-          <Route 
-            path="/dashboard" 
-            element={isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />} 
+          <Route
+            path="/dashboard"
+            element={isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />}
           />
-          <Route 
-            path="/library" 
-            element={isAuthenticated ? <Library /> : <Navigate to="/" replace />} 
+          <Route
+            path="/library"
+            element={isAuthenticated ? <Library /> : <Navigate to="/" replace />}
           />
-          <Route 
-            path="/config" 
-            element={isAuthenticated ? <Config /> : <Navigate to="/" replace />} 
+          <Route
+            path="/config"
+            element={isAuthenticated ? <Config /> : <Navigate to="/" replace />}
           />
-          <Route 
-            path="/session" 
-            element={isAuthenticated ? <Session /> : <Navigate to="/" replace />} 
+          <Route
+            path="/session"
+            element={isAuthenticated ? <Session /> : <Navigate to="/" replace />}
           />
-          <Route 
-            path="/report" 
-            element={isAuthenticated ? <Report /> : <Navigate to="/" replace />} 
+          <Route
+            path="/report"
+            element={isAuthenticated ? <Report /> : <Navigate to="/" replace />}
           />
           <Route path="/settings" element={<div className="py-20 text-center text-secondary">Settings module coming soon.</div>} />
-          {/* Fallback for legacy / path if needed, but we use / for landing now */}
         </Routes>
       </main>
       {!isSession && <Footer />}

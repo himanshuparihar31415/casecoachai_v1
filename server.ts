@@ -1,38 +1,78 @@
-import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-import { createServer as createViteServer } from "vite";
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
+import { env } from './server/config/env.js';
+import { connectDB } from './server/config/db.js';
+import { errorHandler } from './server/middleware/errorHandler.js';
+import { generalLimiter } from './server/middleware/rateLimiter.js';
+import authRoutes from './server/modules/auth/auth.routes.js';
+import caseRoutes from './server/modules/cases/case.routes.js';
+import sessionRoutes from './server/modules/sessions/session.routes.js';
+import reportRoutes from './server/modules/reports/report.routes.js';
+import analyticsRoutes from './server/modules/analytics/analytics.routes.js';
+import { setupVoiceWebSocket } from './server/modules/voice/voice.ws.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+async function startServer(): Promise<void> {
+  await connectDB();
 
-async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const httpServer = createServer(app);
 
-  // API routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  // CORS — allow Vercel frontend and local dev
+  const allowedOrigins = [
+    env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ].filter(Boolean);
+
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        // allow requests with no origin (e.g. mobile apps, curl)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error(`CORS: origin ${origin} not allowed`));
+      },
+      credentials: true,
+    })
+  );
+
+  app.use(express.json({ limit: '2mb' }));
+  app.use(generalLimiter);
+
+  // Health check
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
+  // API routes
+  app.use('/api/auth', authRoutes);
+  app.use('/api/cases', caseRoutes);
+  app.use('/api/sessions', sessionRoutes);
+  app.use('/api/reports', reportRoutes);
+  app.use('/api/analytics', analyticsRoutes);
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  // Global error handler (must be last)
+  app.use(errorHandler);
+
+  // WebSocket server for voice sessions at /api/voice/session/:sessionId
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/api/voice',
+  });
+  setupVoiceWebSocket(wss);
+
+  const PORT = Number(env.PORT);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Case Coach AI backend running on port ${PORT}`);
+    console.log(`   Environment: ${env.NODE_ENV}`);
+    console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
