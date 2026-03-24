@@ -15,8 +15,6 @@ import analyticsRoutes from './server/modules/analytics/analytics.routes.js';
 import { setupVoiceWebSocket } from './server/modules/voice/voice.ws.js';
 
 async function startServer(): Promise<void> {
-  await connectDB();
-
   const app = express();
   const httpServer = createServer(app);
 
@@ -69,6 +67,11 @@ async function startServer(): Promise<void> {
     console.log(`🚀 Case Coach AI backend running on port ${PORT}`);
     console.log(`   Environment: ${env.NODE_ENV}`);
     console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+    // Connect to DB after HTTP server is up so healthcheck passes immediately
+    connectDB().catch((err) => {
+      console.error('Failed to connect to MongoDB:', err);
+      process.exit(1);
+    });
   });
 }
 
