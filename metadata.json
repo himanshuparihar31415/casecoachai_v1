@@ -1,6 +1,6 @@
 {
-  "name": "Executive Intelligence",
-  "description": "AI-powered MBA case interview preparation platform for high-stakes executive intelligence.",
+  "name": "case coach ai",
+  "description": "AI-powered MBA case interview preparation platform for high-stakes case coach ai.",
   "requestFramePermissions": [
     "microphone"
   ]
