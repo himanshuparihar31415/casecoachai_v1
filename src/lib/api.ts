@@ -38,7 +38,7 @@ export const api = {
 };
 
 export function getWsUrl(path: string): string {
-  const base = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000')
+  const base = (import.meta.env.VITE_API_URL ?? 'http://localhost:5000')
     .replace(/^http/, 'ws');
   const token = getToken();
   return `${base}${path}${token ? `?token=${token}` : ''}`;
