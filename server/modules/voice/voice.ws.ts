@@ -18,8 +18,7 @@ function extractToken(req: IncomingMessage): string | null {
 
 function extractSessionId(req: IncomingMessage): string | null {
   const url = new URL(req.url ?? '', `http://${req.headers.host}`);
-  const parts = url.pathname.split('/');
-  return parts[parts.length - 1] ?? null;
+  return url.searchParams.get('sessionId');
 }
 
 function verifyToken(token: string): string | null {

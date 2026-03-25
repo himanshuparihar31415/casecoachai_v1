@@ -1,10 +1,229 @@
-import React from 'react';
-import { MicOff, PhoneOff, Lightbulb, Timer } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { MicOff, Mic, PhoneOff, Lightbulb, AlertCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
-import { Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
+import { api } from '@/src/lib/api';
+
+interface TranscriptEntry {
+  role: 'interviewer' | 'candidate';
+  text: string;
+}
+
+interface KeyDataPoint {
+  label: string;
+  value: string;
+}
+
+interface SessionData {
+  caseId: {
+    title: string;
+    scenario: string;
+    keyDataPoints: KeyDataPoint[];
+  };
+  config: {
+    difficulty: number;
+    interviewerStyle: string;
+  };
+}
+
+type WsStatus = 'connecting' | 'ready' | 'ended' | 'error';
+
+function getToken(): string | null {
+  return localStorage.getItem('auth_token');
+}
 
 export default function Session() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
+
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [liveText, setLiveText] = useState('');
+  const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const captureCtxRef = useRef<AudioContext | null>(null);
+  const playbackCtxRef = useRef<AudioContext | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const nextPlayTimeRef = useRef(0);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll transcript to bottom on new messages
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcript, liveText]);
+
+  const playPcm16Chunk = useCallback((base64: string) => {
+    const ctx = playbackCtxRef.current;
+    if (!ctx) return;
+    try {
+      const raw = atob(base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+      const int16 = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+      const buffer = ctx.createBuffer(1, float32.length, 24000);
+      buffer.copyToChannel(float32, 0);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      nextPlayTimeRef.current = Math.max(nextPlayTimeRef.current, ctx.currentTime);
+      src.start(nextPlayTimeRef.current);
+      nextPlayTimeRef.current += buffer.duration;
+      setIsAiSpeaking(true);
+      src.onended = () => {
+        if (nextPlayTimeRef.current <= ctx.currentTime + 0.05) {
+          setIsAiSpeaking(false);
+        }
+      };
+    } catch {
+      // ignore decode errors
+    }
+  }, []);
+
+  const stopMic = useCallback(() => {
+    processorRef.current?.disconnect();
+    processorRef.current = null;
+    captureCtxRef.current?.close();
+    captureCtxRef.current = null;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+  }, []);
+
+  const startMicCapture = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((stream) => {
+      micStreamRef.current = stream;
+      const captureCtx = new AudioContext({ sampleRate: 16000 });
+      captureCtxRef.current = captureCtx;
+      const source = captureCtx.createMediaStreamSource(stream);
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      const processor = captureCtx.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      source.connect(processor);
+      processor.connect(captureCtx.destination);
+
+      processor.onaudioprocess = (e) => {
+        if (ws.readyState !== WebSocket.OPEN || micMuted) return;
+        const float32 = e.inputBuffer.getChannelData(0);
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          const s = Math.max(-1, Math.min(1, float32[i]));
+          int16[i] = s < 0 ? s * 32768 : s * 32767;
+        }
+        const bytes = new Uint8Array(int16.buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const base64 = btoa(binary);
+        ws.send(JSON.stringify({ type: 'audio_chunk', data: base64 }));
+      };
+    }).catch(() => {
+      // mic permission denied — session continues without audio
+    });
+  }, [micMuted]);
+
+  // Load session data + connect WebSocket
+  useEffect(() => {
+    if (!sessionId) return;
+
+    let cancelled = false;
+
+    api.get<{ session: SessionData }>(`/sessions/${sessionId}`)
+      .then((data) => {
+        if (!cancelled) setSessionData(data.session);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Failed to load session data.');
+      });
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const token = getToken();
+    const wsUrl = `${protocol}//${window.location.host}/api/voice?sessionId=${sessionId}&token=${token}`;
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    playbackCtxRef.current = new AudioContext({ sampleRate: 24000 });
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string);
+        switch (msg.type) {
+          case 'session_ready':
+            setWsStatus('ready');
+            startMicCapture();
+            break;
+          case 'audio_chunk':
+            playPcm16Chunk(msg.data as string);
+            break;
+          case 'transcript_delta':
+            setLiveText((prev) => prev + (msg.text as string));
+            break;
+          case 'transcript':
+            setTranscript((prev) => [...prev, { role: msg.role as 'interviewer' | 'candidate', text: msg.text as string }]);
+            setLiveText('');
+            break;
+          case 'session_ended':
+            setWsStatus('ended');
+            break;
+          case 'error':
+            setWsStatus('error');
+            break;
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    ws.onerror = () => setWsStatus('error');
+    ws.onclose = () => {
+      if (!cancelled) setWsStatus((s) => s === 'ready' ? 'ended' : s);
+    };
+
+    return () => {
+      cancelled = true;
+      ws.close();
+      stopMic();
+      playbackCtxRef.current?.close();
+      playbackCtxRef.current = null;
+    };
+  }, [sessionId, playPcm16Chunk, startMicCapture, stopMic]);
+
+  const handleStopAndSubmit = async () => {
+    setSubmitting(true);
+    wsRef.current?.send(JSON.stringify({ type: 'end_session' }));
+    wsRef.current?.close();
+    stopMic();
+    playbackCtxRef.current?.close();
+    playbackCtxRef.current = null;
+    try {
+      await api.patch(`/sessions/${sessionId}/end`);
+    } catch {
+      // ignore — navigate anyway
+    }
+    navigate(`/report/${sessionId}`);
+  };
+
+  const handleHint = async () => {
+    try {
+      const data = await api.get<{ hint: string }>(`/sessions/${sessionId}/hint`);
+      setTranscript((prev) => [...prev, { role: 'interviewer', text: `[HINT] ${data.hint}` }]);
+    } catch {
+      // ignore
+    }
+  };
+
+  const caseDoc = sessionData?.caseId;
+
   return (
     <div className="grid grid-cols-12 gap-12 flex-grow items-stretch py-8">
       {/* Left Sidebar */}
@@ -12,34 +231,40 @@ export default function Session() {
         <section>
           <label className="label-blueprint mb-4 block">Current Scenario</label>
           <div className="bg-surface-container-lowest p-6 rounded-xl border-l-4 border-primary">
-            <h2 className="font-headline font-bold text-lg text-primary mb-2">Global Logistics Expansion</h2>
-            <p className="text-sm text-on-surface-variant leading-relaxed">
-              A Tier-1 ocean freight company is looking to enter the cold-chain pharmaceutical market.
-            </p>
+            {caseDoc ? (
+              <>
+                <h2 className="font-headline font-bold text-lg text-primary mb-2">{caseDoc.title}</h2>
+                <p className="text-sm text-on-surface-variant leading-relaxed">{caseDoc.scenario}</p>
+              </>
+            ) : (
+              <div className="flex items-center gap-2 text-secondary">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Loading case...</span>
+              </div>
+            )}
           </div>
         </section>
 
-        <section className="flex-grow">
-          <label className="label-blueprint mb-4 block">Key Data Points</label>
-          <div className="space-y-4">
-            {[
-              { label: 'Annual Revenue', value: '$5.2B' },
-              { label: 'Market Share', value: '12%' },
-              { label: 'Growth Target', value: '+15%', highlight: true },
-              { label: 'Capex Limit', value: '$450M' },
-            ].map((item) => (
-              <div key={item.label} className="flex justify-between items-end border-b border-outline-variant/15 pb-2">
-                <span className="text-xs text-on-surface-variant">{item.label}</span>
-                <span className={cn("font-headline font-bold", item.highlight ? "text-on-tertiary-container" : "text-primary")}>
-                  {item.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+        {caseDoc && caseDoc.keyDataPoints.length > 0 && (
+          <section className="flex-grow">
+            <label className="label-blueprint mb-4 block">Key Data Points</label>
+            <div className="space-y-4">
+              {caseDoc.keyDataPoints.map((item, i) => (
+                <div key={i} className="flex justify-between items-end border-b border-outline-variant/15 pb-2">
+                  <span className="text-xs text-on-surface-variant">{item.label}</span>
+                  <span className="font-headline font-bold text-primary">{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mt-auto">
-          <button className="w-full flex items-center justify-center gap-2 py-4 bg-surface-container-high hover:bg-surface-container transition-all text-primary font-headline font-bold text-sm rounded-lg group">
+          <button
+            onClick={handleHint}
+            disabled={wsStatus !== 'ready'}
+            className="w-full flex items-center justify-center gap-2 py-4 bg-surface-container-high hover:bg-surface-container transition-all text-primary font-headline font-bold text-sm rounded-lg group disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <Lightbulb className="w-5 h-5 group-hover:scale-110 transition-transform" />
             Request Hint
           </button>
@@ -53,15 +278,39 @@ export default function Session() {
         </div>
 
         <div className="text-center space-y-12 w-full max-w-md">
+          {wsStatus === 'error' && (
+            <div className="flex items-center gap-2 justify-center text-red-500">
+              <AlertCircle className="w-5 h-5" />
+              <span className="text-sm font-medium">Voice connection error. You can still submit.</span>
+            </div>
+          )}
+
           <div className="space-y-2">
             <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-on-tertiary-container opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-on-tertiary-container" />
-              </span>
-              <span className="label-blueprint text-on-tertiary-container font-bold">AI is listening...</span>
+              {wsStatus === 'connecting' && (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-on-tertiary-container" />
+                  <span className="label-blueprint text-on-tertiary-container font-bold">Connecting to AI...</span>
+                </>
+              )}
+              {wsStatus === 'ready' && (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-on-tertiary-container opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-on-tertiary-container" />
+                  </span>
+                  <span className="label-blueprint text-on-tertiary-container font-bold">
+                    {isAiSpeaking ? 'AI is speaking...' : 'AI is listening...'}
+                  </span>
+                </>
+              )}
+              {wsStatus === 'ended' && (
+                <span className="label-blueprint text-secondary font-bold">Session ended</span>
+              )}
             </div>
-            <h1 className="font-headline text-2xl font-extrabold tracking-tight text-primary">The Partner is analyzing your response</h1>
+            <h1 className="font-headline text-2xl font-extrabold tracking-tight text-primary">
+              {wsStatus === 'ready' ? 'The Partner is analyzing your response' : 'Preparing your interview session'}
+            </h1>
           </div>
 
           {/* Voice Waveform */}
@@ -70,24 +319,40 @@ export default function Session() {
               <motion.div
                 key={i}
                 initial={{ height: h }}
-                animate={{ height: [h, h * 1.5, h * 0.5, h] }}
-                transition={{ repeat: Infinity, duration: 1.5, delay: i * 0.1 }}
-                className="w-1 bg-primary rounded-full"
+                animate={isAiSpeaking ? { height: [h, h * 1.5, h * 0.5, h] } : { height: h * 0.3 }}
+                transition={isAiSpeaking ? { repeat: Infinity, duration: 1.5, delay: i * 0.1 } : { duration: 0.3 }}
+                className={cn("w-1 rounded-full", isAiSpeaking ? "bg-on-tertiary-container" : "bg-primary/30")}
               />
             ))}
           </div>
 
           <div className="flex justify-center gap-6 pt-8">
-            <button className="w-16 h-16 rounded-full bg-surface-container-lowest text-primary hover:bg-surface-container-high transition-all flex items-center justify-center shadow-sm">
-              <MicOff className="w-7 h-7" />
-            </button>
-            <Link 
-              to="/report"
-              className="px-8 py-4 bg-primary text-on-primary font-headline font-bold rounded-lg shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
+            <button
+              onClick={() => setMicMuted((m) => !m)}
+              disabled={wsStatus !== 'ready'}
+              className={cn(
+                "w-16 h-16 rounded-full transition-all flex items-center justify-center shadow-sm disabled:opacity-40 disabled:cursor-not-allowed",
+                micMuted ? "bg-error-container text-on-error-container" : "bg-surface-container-lowest text-primary hover:bg-surface-container-high"
+              )}
             >
+              {micMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+            </button>
+            <button
+              onClick={handleStopAndSubmit}
+              disabled={submitting}
+              className="px-8 py-4 bg-primary text-on-primary font-headline font-bold rounded-lg shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
               Stop and Submit
-            </Link>
-            <button className="w-16 h-16 rounded-full bg-error-container text-on-error-container hover:bg-error/10 transition-all flex items-center justify-center shadow-sm">
+            </button>
+            <button
+              onClick={() => {
+                wsRef.current?.close();
+                stopMic();
+                navigate('/dashboard');
+              }}
+              className="w-16 h-16 rounded-full bg-error-container text-on-error-container hover:bg-error/10 transition-all flex items-center justify-center shadow-sm"
+            >
               <PhoneOff className="w-7 h-7" />
             </button>
           </div>
@@ -98,30 +363,55 @@ export default function Session() {
       <aside className="col-span-12 lg:col-span-3 flex flex-col py-8">
         <label className="label-blueprint mb-4 block">Conversation Log</label>
         <div className="flex-grow scrolling-log overflow-y-auto space-y-6 pr-4">
-          <div className="space-y-1">
-            <div className="text-[10px] font-bold text-on-tertiary-container">PARTNER (AI)</div>
-            <div className="bg-surface-container-low p-4 rounded-lg text-sm text-on-surface-variant leading-relaxed italic">
-              "Given the current competitive landscape, how would you approach the cold-chain infrastructure investment?"
+          {transcript.length === 0 && wsStatus === 'connecting' && (
+            <p className="text-xs text-secondary italic">Waiting for session to start...</p>
+          )}
+          {transcript.map((entry, i) => (
+            <div key={i} className="space-y-1">
+              <div className={cn(
+                "text-[10px] font-bold",
+                entry.role === 'interviewer' ? "text-on-tertiary-container" : "text-primary"
+              )}>
+                {entry.role === 'interviewer' ? 'PARTNER (AI)' : 'CANDIDATE (YOU)'}
+              </div>
+              <div className={cn(
+                "p-4 rounded-lg text-sm leading-relaxed",
+                entry.role === 'interviewer'
+                  ? "bg-surface-container-low text-on-surface-variant italic"
+                  : "bg-surface-container-lowest text-primary border border-outline-variant/10"
+              )}>
+                {entry.text}
+              </div>
             </div>
-          </div>
+          ))}
 
-          <div className="space-y-1">
-            <div className="text-[10px] font-bold text-primary">CANDIDATE (YOU)</div>
-            <div className="bg-surface-container-lowest p-4 rounded-lg text-sm text-primary leading-relaxed border border-outline-variant/10">
-              "I would first evaluate the geographic concentration of our primary pharmaceutical clients and compare the cost of greenfield construction versus acquisition of mid-size regional players."
+          {liveText && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-bold text-on-tertiary-container">PARTNER (AI)</div>
+              <div className="bg-surface-container-low p-4 rounded-lg text-sm text-on-surface-variant leading-relaxed italic">
+                {liveText}
+                <span className="inline-block w-1 h-3 bg-on-tertiary-container ml-0.5 animate-pulse" />
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="flex items-center gap-2 py-4">
-            <div className="flex gap-1">
-              <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse" />
-              <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse delay-75" />
-              <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse delay-150" />
+          {wsStatus === 'ready' && !liveText && (
+            <div className="flex items-center gap-2 py-4">
+              <div className="flex gap-1">
+                <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse" />
+                <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse delay-75" />
+                <div className="w-1 h-1 bg-on-tertiary-container rounded-full animate-pulse delay-150" />
+              </div>
+              <span className="text-[10px] text-secondary font-medium italic">Transcription in progress...</span>
             </div>
-            <span className="text-[10px] text-secondary font-medium italic">Transcription in progress...</span>
-          </div>
+          )}
+          <div ref={transcriptEndRef} />
         </div>
       </aside>
+
+      {loadError && (
+        <div className="col-span-12 text-center text-red-500 text-sm">{loadError}</div>
+      )}
     </div>
   );
 }

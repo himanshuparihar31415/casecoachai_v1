@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Compass, TrendingUp, Handshake, Settings, DollarSign, Info, ArrowRight, CheckCircle, Circle } from 'lucide-react';
+import { Compass, TrendingUp, Handshake, Settings, DollarSign, Info, ArrowRight, CheckCircle, Circle, Loader2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { api } from '@/src/lib/api';
 
 const archetypes = [
   { id: 'profitability', title: 'Profitability', desc: 'Diagnose declining margins and optimize cost structures.', icon: <DollarSign className="w-8 h-8" /> },
-  { id: 'market-entry', title: 'Market Entry', desc: 'Assess attractiveness and define GTM strategy for new territories.', icon: <Compass className="w-8 h-8" />, active: true },
-  { id: 'm&a', title: 'M&A', desc: 'Evaluate synergy potential and strategic fit for acquisitions.', icon: <Handshake className="w-8 h-8" /> },
+  { id: 'market_entry', title: 'Market Entry', desc: 'Assess attractiveness and define GTM strategy for new territories.', icon: <Compass className="w-8 h-8" /> },
+  { id: 'ma', title: 'M&A', desc: 'Evaluate synergy potential and strategic fit for acquisitions.', icon: <Handshake className="w-8 h-8" /> },
   { id: 'growth', title: 'Growth', desc: 'Identify levers to scale revenue and capture market share.', icon: <TrendingUp className="w-8 h-8" /> },
   { id: 'pricing', title: 'Pricing', desc: 'Develop elasticity models and tiered pricing architectures.', icon: <DollarSign className="w-8 h-8" /> },
   { id: 'operations', title: 'Operations', desc: 'Streamline supply chains and improve process efficiency.', icon: <Settings className="w-8 h-8" /> },
@@ -14,11 +15,48 @@ const archetypes = [
 
 const industries = ['Tech', 'CPG', 'Pharma', 'Finance', 'Energy', 'Automotive', 'Retail'];
 
+const styleMap: Record<string, string> = {
+  'Supportive': 'supportive',
+  'Neutral': 'neutral',
+  'Stress Interview': 'stress',
+};
+
 export default function Config() {
-  const [selectedArchetype, setSelectedArchetype] = useState('market-entry');
+  const navigate = useNavigate();
+  const [selectedArchetype, setSelectedArchetype] = useState('market_entry');
   const [selectedIndustry, setSelectedIndustry] = useState('Pharma');
   const [difficulty, setDifficulty] = useState(3);
   const [interviewerStyle, setInterviewerStyle] = useState('Neutral');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleBeginCase = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const caseData = await api.post<{ _id: string }>('/cases/generate', {
+        type: selectedArchetype,
+        industry: selectedIndustry.toLowerCase(),
+        difficulty,
+      });
+
+      const sessionData = await api.post<{ session: { _id: string } }>('/sessions', {
+        caseId: caseData._id,
+        config: {
+          difficulty,
+          industry: selectedIndustry.toLowerCase(),
+          caseType: selectedArchetype,
+          interviewerStyle: styleMap[interviewerStyle] ?? 'neutral',
+          durationMinutes: 45,
+        },
+      });
+
+      navigate(`/session/${sessionData.session._id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start session. Please try again.');
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto py-12 md:py-20">
@@ -73,13 +111,13 @@ export default function Config() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {archetypes.map((a) => (
-                <div 
+                <div
                   key={a.id}
                   onClick={() => setSelectedArchetype(a.id)}
                   className={cn(
                     "p-8 cursor-pointer transition-all border-b-4 group",
-                    selectedArchetype === a.id 
-                      ? "bg-primary border-on-tertiary-container shadow-2xl" 
+                    selectedArchetype === a.id
+                      ? "bg-primary border-on-tertiary-container shadow-2xl"
                       : "bg-surface-container-lowest border-transparent hover:bg-surface-container-low hover:border-on-tertiary-container"
                   )}
                 >
@@ -110,8 +148,8 @@ export default function Config() {
                   onClick={() => setSelectedIndustry(ind)}
                   className={cn(
                     "px-6 py-2 rounded-full font-label text-xs font-bold uppercase tracking-widest transition-all",
-                    selectedIndustry === ind 
-                      ? "bg-primary text-white shadow-lg" 
+                    selectedIndustry === ind
+                      ? "bg-primary text-white shadow-lg"
                       : "border border-outline-variant text-secondary hover:border-primary"
                   )}
                 >
@@ -126,9 +164,9 @@ export default function Config() {
             <div>
               <h2 className="font-headline text-2xl font-bold text-primary mb-10">Difficulty Level</h2>
               <div className="relative px-2">
-                <input 
-                  className="w-full appearance-none bg-surface-container h-1 rounded-full cursor-pointer accent-on-tertiary-container" 
-                  max="4" min="1" step="1" type="range" 
+                <input
+                  className="w-full appearance-none bg-surface-container h-1 rounded-full cursor-pointer accent-on-tertiary-container"
+                  max="4" min="1" step="1" type="range"
                   value={difficulty}
                   onChange={(e) => setDifficulty(parseInt(e.target.value))}
                 />
@@ -145,13 +183,13 @@ export default function Config() {
               <h2 className="font-headline text-2xl font-bold text-primary mb-8">Interviewer Style</h2>
               <div className="space-y-3">
                 {['Supportive', 'Neutral', 'Stress Interview'].map((style) => (
-                  <div 
+                  <div
                     key={style}
                     onClick={() => setInterviewerStyle(style)}
                     className={cn(
                       "flex items-center justify-between p-4 bg-surface-container-lowest border cursor-pointer transition-all",
-                      interviewerStyle === style 
-                        ? "border-on-tertiary-container shadow-sm" 
+                      interviewerStyle === style
+                        ? "border-on-tertiary-container shadow-sm"
                         : "border-outline-variant/30 hover:border-on-tertiary-container"
                     )}
                   >
@@ -169,17 +207,30 @@ export default function Config() {
 
           {/* Action Bar */}
           <section className="flex flex-col md:flex-row items-center justify-between pt-12 border-t border-outline-variant/20 gap-8">
-            <div className="flex items-center gap-4 text-secondary">
-              <Info className="w-5 h-5" />
-              <p className="font-body text-sm italic">Session will take approximately 45 minutes to complete.</p>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-4 text-secondary">
+                <Info className="w-5 h-5" />
+                <p className="font-body text-sm italic">Session will take approximately 45 minutes to complete.</p>
+              </div>
+              {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
             </div>
-            <Link 
-              to="/session"
-              className="bg-gradient-to-br from-primary to-primary-container text-white px-12 py-5 rounded-md font-headline font-bold text-lg tracking-tight hover:scale-95 transition-transform shadow-2xl flex items-center gap-3"
+            <button
+              onClick={handleBeginCase}
+              disabled={loading}
+              className="bg-gradient-to-br from-primary to-primary-container text-white px-12 py-5 rounded-md font-headline font-bold text-lg tracking-tight hover:scale-95 transition-transform shadow-2xl flex items-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              Begin Case
-              <ArrowRight className="w-6 h-6" />
-            </Link>
+              {loading ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                  Generating Case...
+                </>
+              ) : (
+                <>
+                  Begin Case
+                  <ArrowRight className="w-6 h-6" />
+                </>
+              )}
+            </button>
           </section>
         </div>
       </div>

@@ -52,7 +52,7 @@ function AppContent() {
   };
 
   const isAuthenticated = user !== null;
-  const isSession = location.pathname === '/session';
+  const isSession = location.pathname.startsWith('/session');
   const isLanding = location.pathname === '/';
 
   if (!authChecked) {
@@ -84,7 +84,7 @@ function AppContent() {
           <Route path="/" element={<Landing onOpenAuth={() => setIsAuthModalOpen(true)} />} />
           <Route
             path="/dashboard"
-            element={isAuthenticated ? <Dashboard /> : <Navigate to="/" replace />}
+            element={isAuthenticated ? <Dashboard user={user} /> : <Navigate to="/" replace />}
           />
           <Route
             path="/library"
@@ -95,11 +95,11 @@ function AppContent() {
             element={isAuthenticated ? <Config /> : <Navigate to="/" replace />}
           />
           <Route
-            path="/session"
+            path="/session/:sessionId"
             element={isAuthenticated ? <Session /> : <Navigate to="/" replace />}
           />
           <Route
-            path="/report"
+            path="/report/:sessionId"
             element={isAuthenticated ? <Report /> : <Navigate to="/" replace />}
           />
           <Route path="/settings" element={<div className="py-20 text-center text-secondary">Settings module coming soon.</div>} />
