@@ -192,9 +192,20 @@ export default function Session() {
       }
     };
 
-    ws.onerror = () => setWsStatus('error');
-    ws.onclose = () => {
-      if (!cancelled) setWsStatus((s) => s === 'ready' ? 'ended' : s);
+    ws.onerror = () => {
+      // onclose will fire right after with code/reason — don't override status here
+    };
+    ws.onclose = (event) => {
+      if (!cancelled) {
+        const isClean = event.code === 1000 || event.code === 1001;
+        if (isClean) {
+          setWsStatus((s) => s === 'ready' ? 'ended' : s);
+        } else {
+          setWsStatus('error');
+          const reason = event.reason || `Code ${event.code}`;
+          setWsError(reason);
+        }
+      }
     };
 
     return () => {
