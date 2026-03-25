@@ -24,7 +24,7 @@ export default function AuthModal({ isOpen, onClose, onLogin }: AuthModalProps) 
     setLoading(true);
 
     try {
-      const endpoint = mode === 'signin' ? '/api/auth/login' : '/api/auth/signup';
+      const endpoint = mode === 'signin' ? '/auth/login' : '/auth/signup';
       const body = mode === 'signin' ? { email, password } : { name, email, password };
 
       const data = await api.post<{ token: string; user: { name: string; email: string } }>(endpoint, body);

@@ -30,7 +30,7 @@ function AppContent() {
       setAuthChecked(true);
       return;
     }
-    api.get<{ user: AuthUser }>('/api/auth/me')
+    api.get<{ user: AuthUser }>('/auth/me')
       .then((data) => setUser(data.user))
       .catch(() => {
         // Token expired or invalid — clear it
