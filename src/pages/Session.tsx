@@ -3,7 +3,7 @@ import { MicOff, Mic, PhoneOff, Lightbulb, AlertCircle, Loader2 } from 'lucide-r
 import { cn } from '@/src/lib/utils';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { api } from '@/src/lib/api';
+import { api, getWsUrl } from '@/src/lib/api';
 
 interface TranscriptEntry {
   role: 'interviewer' | 'candidate';
@@ -29,9 +29,6 @@ interface SessionData {
 
 type WsStatus = 'connecting' | 'ready' | 'ended' | 'error';
 
-function getToken(): string | null {
-  return localStorage.getItem('auth_token');
-}
 
 export default function Session() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -148,14 +145,7 @@ export default function Session() {
         if (!cancelled) setLoadError('Failed to load session data.');
       });
 
-    const token = getToken();
-    // If VITE_API_URL is set (e.g. Railway URL) use it directly for WebSocket;
-    // otherwise fall back to window.location.host (works when frontend is served from same server)
-    const apiUrl = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
-    const wsBase = apiUrl
-      ? apiUrl.replace(/^http/, 'ws')
-      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
-    const wsUrl = `${wsBase}/api/voice?sessionId=${sessionId}&token=${token}`;
+    const wsUrl = getWsUrl('/api/voice', { sessionId: sessionId! });
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

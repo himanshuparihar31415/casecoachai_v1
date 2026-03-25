@@ -37,11 +37,26 @@ export const api = {
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
-export function getWsUrl(path: string): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const base = import.meta.env.VITE_API_URL
-    ? import.meta.env.VITE_API_URL.replace(/^http/, 'ws')
-    : `${protocol}//${window.location.host}`;
+export function getWsUrl(path: string, params: Record<string, string> = {}): string {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  let base: string;
+  const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
+  if (apiUrl) {
+    // Normalize whatever format VITE_API_URL is in to an absolute wss:// URL
+    if (/^wss?:\/\//.test(apiUrl)) {
+      base = apiUrl; // already ws/wss
+    } else if (/^https?:\/\//.test(apiUrl)) {
+      base = apiUrl.replace(/^https?/, wsProtocol); // http(s) → ws(s)
+    } else if (apiUrl.startsWith('//')) {
+      base = `${wsProtocol}:${apiUrl}`; // protocol-relative
+    } else {
+      base = `${wsProtocol}://${apiUrl}`; // bare hostname
+    }
+  } else {
+    base = `${wsProtocol}://${window.location.host}`;
+  }
   const token = getToken();
-  return `${base}${path}${token ? `?token=${token}` : ''}`;
+  const allParams = { ...(token ? { token } : {}), ...params };
+  const qs = new URLSearchParams(allParams).toString();
+  return `${base}${path}${qs ? `?${qs}` : ''}`;
 }
