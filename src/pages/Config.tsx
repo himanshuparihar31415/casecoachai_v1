@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Compass, TrendingUp, Handshake, Settings, DollarSign, Info, ArrowRight, CheckCircle, Circle, Loader2 } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Compass, TrendingUp, Handshake, Settings, DollarSign, Info, ArrowRight, CheckCircle, Circle, Loader2, FileText, Upload } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '@/src/lib/api';
 
 const archetypes = [
@@ -23,6 +23,7 @@ const styleMap: Record<string, string> = {
 
 export default function Config() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [selectedArchetype, setSelectedArchetype] = useState('market_entry');
   const [selectedIndustry, setSelectedIndustry] = useState('Pharma');
   const [difficulty, setDifficulty] = useState(3);
@@ -30,18 +31,58 @@ export default function Config() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Custom case import state
+  const [importMode, setImportMode] = useState<'ai' | 'custom'>(
+    (location.state as { caseId?: string } | null)?.caseId ? 'custom' : 'ai'
+  );
+  const [customInputType, setCustomInputType] = useState<'text' | 'pdf'>('text');
+  const [customTitle, setCustomTitle] = useState('');
+  const [customScenario, setCustomScenario] = useState('');
+  const [customFile, setCustomFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
   const handleBeginCase = async () => {
     setLoading(true);
     setError('');
     try {
-      const { case: caseDoc } = await api.post<{ case: { _id: string } }>('/cases/generate', {
-        type: selectedArchetype,
-        industry: selectedIndustry.toLowerCase(),
-        difficulty,
-      });
+      let caseId: string;
+
+      if (importMode === 'custom') {
+        // Validate custom input
+        if (!customTitle.trim()) throw new Error('Case title is required.');
+        if (customInputType === 'text' && !customScenario.trim()) throw new Error('Scenario text is required.');
+        if (customInputType === 'pdf' && !customFile) throw new Error('Please select a PDF file.');
+
+        let result: { case: { _id: string; type: string; industry: string } };
+        if (customInputType === 'pdf' && customFile) {
+          const fd = new FormData();
+          fd.append('file', customFile);
+          fd.append('title', customTitle.trim());
+          fd.append('type', selectedArchetype);
+          fd.append('industry', selectedIndustry.toLowerCase());
+          fd.append('difficulty', String(difficulty));
+          result = await api.postForm<{ case: { _id: string; type: string; industry: string } }>('/cases/custom', fd);
+        } else {
+          result = await api.post<{ case: { _id: string; type: string; industry: string } }>('/cases/custom', {
+            title: customTitle.trim(),
+            scenario: customScenario.trim(),
+            type: selectedArchetype,
+            industry: selectedIndustry.toLowerCase(),
+            difficulty,
+          });
+        }
+        caseId = result.case._id;
+      } else {
+        const { case: caseDoc } = await api.post<{ case: { _id: string } }>('/cases/generate', {
+          type: selectedArchetype,
+          industry: selectedIndustry.toLowerCase(),
+          difficulty,
+        });
+        caseId = caseDoc._id;
+      }
 
       const sessionData = await api.post<{ session: { _id: string } }>('/sessions', {
-        caseId: caseDoc._id,
+        caseId,
         config: {
           difficulty,
           industry: selectedIndustry.toLowerCase(),
@@ -205,6 +246,134 @@ export default function Config() {
             </div>
           </section>
 
+          {/* Case Source — AI or Custom Import */}
+          <section className="space-y-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="font-headline text-2xl font-bold text-primary">Case Source</h2>
+              <span className="text-on-tertiary-container font-label text-xs font-bold uppercase tracking-widest">Required</span>
+            </div>
+
+            {/* Toggle */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setImportMode('ai')}
+                className={cn(
+                  'flex items-center gap-3 p-5 rounded-xl border-2 transition-all text-left',
+                  importMode === 'ai'
+                    ? 'border-on-tertiary-container bg-on-tertiary-container/10 text-primary'
+                    : 'border-outline-variant/30 text-secondary hover:border-on-tertiary-container/50'
+                )}
+              >
+                <Compass className="w-6 h-6 shrink-0" />
+                <div>
+                  <p className="font-label font-bold text-sm">AI-Generated</p>
+                  <p className="font-body text-xs opacity-70 mt-0.5">Synthesize a unique case using the parameters above.</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportMode('custom')}
+                className={cn(
+                  'flex items-center gap-3 p-5 rounded-xl border-2 transition-all text-left',
+                  importMode === 'custom'
+                    ? 'border-on-tertiary-container bg-on-tertiary-container/10 text-primary'
+                    : 'border-outline-variant/30 text-secondary hover:border-on-tertiary-container/50'
+                )}
+              >
+                <Upload className="w-6 h-6 shrink-0" />
+                <div>
+                  <p className="font-label font-bold text-sm">Import Your Own</p>
+                  <p className="font-body text-xs opacity-70 mt-0.5">Paste text or upload a PDF case document.</p>
+                </div>
+              </button>
+            </div>
+
+            {/* Custom import fields */}
+            {importMode === 'custom' && (
+              <div className="space-y-5 pt-2">
+                {/* Input type */}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCustomInputType('text')}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-label font-semibold transition-all',
+                      customInputType === 'text'
+                        ? 'border-on-tertiary-container bg-on-tertiary-container/10 text-primary'
+                        : 'border-outline-variant/30 text-secondary hover:border-on-tertiary-container/50'
+                    )}
+                  >
+                    <FileText className="w-4 h-4" /> Paste Text
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomInputType('pdf')}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-label font-semibold transition-all',
+                      customInputType === 'pdf'
+                        ? 'border-on-tertiary-container bg-on-tertiary-container/10 text-primary'
+                        : 'border-outline-variant/30 text-secondary hover:border-on-tertiary-container/50'
+                    )}
+                  >
+                    <Upload className="w-4 h-4" /> Upload PDF
+                  </button>
+                </div>
+
+                {/* Title */}
+                <div>
+                  <label className="block text-sm font-label font-semibold text-secondary mb-1">Case Title *</label>
+                  <input
+                    type="text"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="e.g. Declining Margins at Retailer X"
+                    className="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-lg px-4 py-2.5 text-primary placeholder:text-outline focus:outline-none focus:border-on-tertiary-container"
+                  />
+                </div>
+
+                {/* Text or PDF */}
+                {customInputType === 'text' ? (
+                  <div>
+                    <label className="block text-sm font-label font-semibold text-secondary mb-1">Case Scenario *</label>
+                    <textarea
+                      value={customScenario}
+                      onChange={(e) => setCustomScenario(e.target.value)}
+                      rows={6}
+                      placeholder="Paste the full case scenario, background information, and any data provided..."
+                      className="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-lg px-4 py-2.5 text-primary placeholder:text-outline focus:outline-none focus:border-on-tertiary-container resize-none"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-label font-semibold text-secondary mb-1">PDF File *</label>
+                    <div
+                      onClick={() => fileRef.current?.click()}
+                      className={cn(
+                        'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors',
+                        customFile
+                          ? 'border-on-tertiary-container bg-on-tertiary-container/5 text-primary'
+                          : 'border-outline-variant/30 text-secondary hover:border-on-tertiary-container/50'
+                      )}
+                    >
+                      <Upload className="w-8 h-8 mx-auto mb-2 opacity-60" />
+                      <p className="text-sm font-label font-medium">
+                        {customFile ? customFile.name : 'Click to select a PDF (max 10 MB)'}
+                      </p>
+                    </div>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept=".pdf"
+                      className="hidden"
+                      onChange={(e) => setCustomFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
           {/* Action Bar */}
           <section className="flex flex-col md:flex-row items-center justify-between pt-12 border-t border-outline-variant/20 gap-8">
             <div className="flex flex-col gap-2">
@@ -222,7 +391,7 @@ export default function Config() {
               {loading ? (
                 <>
                   <Loader2 className="w-6 h-6 animate-spin" />
-                  Generating Case...
+                  {importMode === 'custom' ? 'Saving & Starting...' : 'Generating Case...'}
                 </>
               ) : (
                 <>
