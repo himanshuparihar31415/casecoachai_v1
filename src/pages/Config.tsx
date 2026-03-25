@@ -34,14 +34,14 @@ export default function Config() {
     setLoading(true);
     setError('');
     try {
-      const caseData = await api.post<{ _id: string }>('/cases/generate', {
+      const { case: caseDoc } = await api.post<{ case: { _id: string } }>('/cases/generate', {
         type: selectedArchetype,
         industry: selectedIndustry.toLowerCase(),
         difficulty,
       });
 
       const sessionData = await api.post<{ session: { _id: string } }>('/sessions', {
-        caseId: caseData._id,
+        caseId: caseDoc._id,
         config: {
           difficulty,
           industry: selectedIndustry.toLowerCase(),
