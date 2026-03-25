@@ -42,6 +42,7 @@ export default function Session() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [liveText, setLiveText] = useState('');
   const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
+  const [wsError, setWsError] = useState('');
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -183,6 +184,7 @@ export default function Session() {
             break;
           case 'error':
             setWsStatus('error');
+            setWsError((msg.message as string) || 'Voice service error');
             break;
         }
       } catch {
@@ -287,7 +289,7 @@ export default function Session() {
           {wsStatus === 'error' && (
             <div className="flex items-center gap-2 justify-center text-red-500">
               <AlertCircle className="w-5 h-5" />
-              <span className="text-sm font-medium">Voice connection error. You can still submit.</span>
+              <span className="text-sm font-medium">{wsError || 'Voice connection error'}. You can still submit.</span>
             </div>
           )}
 

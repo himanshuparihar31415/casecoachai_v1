@@ -31,7 +31,16 @@ function verifyToken(token: string): string | null {
 }
 
 export function setupVoiceWebSocket(wss: WebSocketServer): void {
-  wss.on('connection', async (clientWs: WebSocket, req: IncomingMessage) => {
+  wss.on('connection', (clientWs: WebSocket, req: IncomingMessage) => {
+    handleConnection(clientWs, req).catch((err) => {
+      console.error('Voice WS unhandled error:', err);
+      sendToClient(clientWs, { type: 'error', message: 'Internal voice service error' });
+      clientWs.close();
+    });
+  });
+}
+
+async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Promise<void> {
     // Authenticate
     const token = extractToken(req);
     if (!token) {
@@ -74,6 +83,13 @@ export function setupVoiceWebSocket(wss: WebSocketServer): void {
       session.config.difficulty,
       session.config.interviewerStyle
     );
+
+    // Fail fast if no API key configured
+    if (!env.OPENAI_API_KEY) {
+      sendToClient(clientWs, { type: 'error', message: 'OPENAI_API_KEY is not configured on the server' });
+      clientWs.close();
+      return;
+    }
 
     // Connect to OpenAI Realtime API
     const openaiWs = new WebSocketNode(OPENAI_REALTIME_URL, {
@@ -237,7 +253,6 @@ export function setupVoiceWebSocket(wss: WebSocketServer): void {
       console.error('Client WS error:', err.message);
       openaiWs.close();
     });
-  });
 }
 
 function sendToClient(ws: WebSocket, payload: object): void {
