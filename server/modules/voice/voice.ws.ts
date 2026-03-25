@@ -9,7 +9,7 @@ import { INTERVIEWER_SYSTEM_PROMPT } from '../../ai/prompts.js';
 import { appendTranscript } from '../sessions/session.service.js';
 import { CaseType } from '../../models/Case.js';
 
-const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01';
+const OPENAI_REALTIME_URL = 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17';
 
 function extractToken(req: IncomingMessage): string | null {
   const url = new URL(req.url ?? '', `http://${req.headers.host}`);
