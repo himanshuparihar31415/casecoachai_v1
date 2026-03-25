@@ -1,4 +1,11 @@
 import 'dotenv/config';
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -16,6 +23,9 @@ import { setupVoiceWebSocket } from './server/modules/voice/voice.ws.js';
 
 const app = express();
 const httpServer = createServer(app);
+
+// Required so express-rate-limit reads client IP correctly behind Railway/Vercel proxy
+app.set('trust proxy', 1);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
