@@ -101,7 +101,7 @@ export default function Session() {
     const ws = wsRef.current;
     if (!ws) return;
 
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((stream) => {
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then((stream: MediaStream) => {
       micStreamRef.current = stream;
       const captureCtx = new AudioContext({ sampleRate: 16000 });
       captureCtxRef.current = captureCtx;
@@ -126,8 +126,8 @@ export default function Session() {
         const base64 = btoa(binary);
         ws.send(JSON.stringify({ type: 'audio_chunk', data: base64 }));
       };
-    }).catch(() => {
-      // mic permission denied — session continues without audio
+    }).catch((err: Error) => {
+      setWsError(`Microphone access denied: ${err.message}. Please allow mic access and refresh.`);
     });
   }, []);
 

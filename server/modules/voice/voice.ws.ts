@@ -124,9 +124,6 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
       };
 
       openaiWs.send(JSON.stringify(sessionUpdate));
-
-      // Notify client that the session is ready
-      sendToClient(clientWs, { type: 'session_ready' });
     });
 
     // Forward OpenAI events to client
@@ -135,6 +132,11 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
         const event = JSON.parse(data.toString());
 
         switch (event.type) {
+          case 'session.updated':
+            // Session is configured — trigger AI greeting and tell client we're ready
+            openaiWs.send(JSON.stringify({ type: 'response.create' }));
+            sendToClient(clientWs, { type: 'session_ready' });
+            break;
           case 'response.audio.delta':
             // Stream AI audio chunk to client
             sendToClient(clientWs, {
