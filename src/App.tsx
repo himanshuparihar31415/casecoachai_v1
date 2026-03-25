@@ -20,16 +20,14 @@ interface AuthUser {
 function AppContent() {
   const location = useLocation();
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  // No token = no async check needed, start as already checked
+  const [authChecked, setAuthChecked] = useState(() => !localStorage.getItem('auth_token'));
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // On mount, validate stored JWT with the backend
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
-    if (!token) {
-      setAuthChecked(true);
-      return;
-    }
+    if (!token) return; // authChecked already true from initial state
     api.get<{ user: AuthUser }>('/auth/me')
       .then((data) => setUser(data.user))
       .catch(() => {
