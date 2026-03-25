@@ -59,8 +59,21 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-const wss = new WebSocketServer({ server: httpServer, path: '/api/voice' });
+// Use noServer mode so we control upgrade routing explicitly — avoids path-matching edge cases
+const wss = new WebSocketServer({ noServer: true });
 setupVoiceWebSocket(wss);
+
+httpServer.on('upgrade', (req, socket, head) => {
+  const pathname = new URL(req.url ?? '', `http://${req.headers.host}`).pathname;
+  console.log('WS upgrade request:', pathname);
+  if (pathname === '/api/voice') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 const PORT = Number(env.PORT);
 httpServer.listen(PORT, '0.0.0.0', () => {
