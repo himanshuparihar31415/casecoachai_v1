@@ -36,9 +36,7 @@ function AppContent() {
         // Token expired or invalid — clear it
         localStorage.removeItem('auth_token');
       })
-      .finally(() => setAuthChecked(false));
-
-    setAuthChecked(true);
+      .finally(() => setAuthChecked(true));
   }, []);
 
   const handleLogin = (userData: AuthUser) => {
