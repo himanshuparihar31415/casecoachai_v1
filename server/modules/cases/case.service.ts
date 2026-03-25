@@ -11,11 +11,14 @@ interface CaseFilter {
   limit?: number;
 }
 
-export async function listCases(filter: CaseFilter): Promise<{ cases: ICase[]; total: number }> {
+export async function listCases(filter: CaseFilter, userId?: string): Promise<{ cases: ICase[]; total: number }> {
   const query: Record<string, unknown> = {};
   if (filter.type) query.type = filter.type;
   if (filter.industry) query.industry = filter.industry;
   if (filter.difficulty) query.difficulty = Number(filter.difficulty);
+  if (userId) {
+    query.$or = [{ isCustom: false }, { createdBy: userId }];
+  }
 
   const page = filter.page ?? 1;
   const limit = filter.limit ?? 12;
@@ -27,6 +30,42 @@ export async function listCases(filter: CaseFilter): Promise<{ cases: ICase[]; t
   ]);
 
   return { cases, total };
+}
+
+export async function listMyCases(userId: string, limit = 12, page = 1): Promise<{ cases: ICase[]; total: number }> {
+  const skip = (page - 1) * limit;
+  const filter = { isCustom: true, createdBy: userId };
+  const [cases, total] = await Promise.all([
+    Case.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    Case.countDocuments(filter),
+  ]);
+  return { cases, total };
+}
+
+export async function createCustomCase(
+  userId: string,
+  data: {
+    title: string;
+    scenario: string;
+    description?: string;
+    type?: CaseType;
+    industry?: Industry;
+    difficulty?: number;
+  }
+): Promise<ICase> {
+  return Case.create({
+    title: data.title,
+    scenario: data.scenario,
+    description: data.description ?? data.scenario.slice(0, 300),
+    type: data.type ?? 'operations',
+    industry: data.industry ?? 'tech',
+    difficulty: data.difficulty ?? 2,
+    keyDataPoints: [],
+    questions: [],
+    isSeeded: false,
+    isCustom: true,
+    createdBy: userId,
+  });
 }
 
 export async function getCaseById(id: string): Promise<ICase> {

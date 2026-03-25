@@ -35,6 +35,17 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  postForm: async <T>(path: string, data: FormData): Promise<T> => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers, body: data });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  },
 };
 
 export function getWsUrl(path: string, params: Record<string, string> = {}): string {

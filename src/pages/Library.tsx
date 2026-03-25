@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Bookmark, Star, Calendar, Bolt, Loader2 } from 'lucide-react';
+import { Search, Bookmark, Star, Calendar, Bolt, Loader2, Plus } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Link } from 'react-router-dom';
 import { api } from '@/src/lib/api';
+import AddCaseModal from '@/src/components/AddCaseModal';
 
 interface CaseDoc {
   _id: string;
@@ -22,15 +23,19 @@ const difficultyDuration: Record<number, string> = {
 
 export default function Library() {
   const [cases, setCases] = useState<CaseDoc[]>([]);
+  const [myCases, setMyCases] = useState<CaseDoc[]>([]);
   const [total, setTotal] = useState(0);
+  const [myTotal, setMyTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Recommended for You');
   const [filterType, setFilterType] = useState('');
   const [filterIndustry, setFilterIndustry] = useState('');
   const [filterDifficulty, setFilterDifficulty] = useState('');
   const [page, setPage] = useState(1);
+  const [myPage, setMyPage] = useState(1);
+  const [showAddModal, setShowAddModal] = useState(false);
 
-  const tabs = ['Recommended for You', 'Most Popular', 'New Releases'];
+  const tabs = ['Recommended for You', 'Most Popular', 'New Releases', 'My Cases'];
 
   const fetchCases = async (resetPage = false) => {
     setLoading(true);
@@ -45,7 +50,6 @@ export default function Library() {
     try {
       const data = await api.get<{ cases: CaseDoc[]; total: number }>(`/cases?${params}`);
       if (data.cases.length === 0 && currentPage === 1) {
-        // Seed then refetch
         await api.post('/cases/seed');
         const seeded = await api.get<{ cases: CaseDoc[]; total: number }>(`/cases?${params}`);
         setCases(seeded.cases);
@@ -61,14 +65,44 @@ export default function Library() {
     }
   };
 
+  const fetchMyCases = async (resetPage = false) => {
+    setLoading(true);
+    const currentPage = resetPage ? 1 : myPage;
+    if (resetPage) setMyPage(1);
+    try {
+      const data = await api.get<{ cases: CaseDoc[]; total: number }>(`/cases/mine?limit=12&page=${currentPage}`);
+      setMyCases((prev) => (resetPage || currentPage === 1) ? data.cases : [...prev, ...data.cases]);
+      setMyTotal(data.total);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchCases(true);
-  }, [filterType, filterIndustry, filterDifficulty]);
+    if (activeTab === 'My Cases') {
+      fetchMyCases(true);
+    } else {
+      fetchCases(true);
+    }
+  }, [filterType, filterIndustry, filterDifficulty, activeTab]);
 
   const handleLoadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchCases();
+    if (activeTab === 'My Cases') {
+      const next = myPage + 1;
+      setMyPage(next);
+      fetchMyCases();
+    } else {
+      const next = page + 1;
+      setPage(next);
+      fetchCases();
+    }
+  };
+
+  const handleCaseCreated = (c: CaseDoc) => {
+    setMyCases((prev) => [c, ...prev]);
+    setMyTotal((t) => t + 1);
   };
 
   return (
@@ -135,98 +169,140 @@ export default function Library() {
         </div>
       </section>
 
-      {/* Tabs */}
+      {/* Tabs + Add Case button */}
       <section>
-        <div className="flex items-center gap-12 border-b border-outline-variant/15 overflow-x-auto scrolling-log">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                "pb-4 border-b-2 transition-all whitespace-nowrap font-label text-sm",
-                activeTab === tab
-                  ? "border-primary text-primary font-bold"
-                  : "border-transparent text-secondary font-medium hover:text-primary"
-              )}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="flex items-center justify-between border-b border-outline-variant/15">
+          <div className="flex items-center gap-12 overflow-x-auto scrolling-log">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "pb-4 border-b-2 transition-all whitespace-nowrap font-label text-sm",
+                  activeTab === tab
+                    ? "border-primary text-primary font-bold"
+                    : "border-transparent text-secondary font-medium hover:text-primary"
+                )}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 mb-4 px-4 py-2 bg-on-tertiary-container text-white text-sm font-label font-bold rounded-lg hover:opacity-90 transition-opacity active:scale-95 whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" /> Add Case
+          </button>
         </div>
       </section>
 
       {/* Case Grid */}
-      {loading && cases.length === 0 ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-on-tertiary-container" />
-        </div>
-      ) : (
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {cases.map((c) => (
-            <div key={c._id} className="group relative bg-surface-container-lowest p-6 rounded-lg transition-all hover:translate-y-[-4px] border border-transparent hover:border-on-tertiary-container/20">
-              <div className="flex justify-between items-start mb-6">
-                <span className="px-2 py-1 text-[10px] font-label font-bold uppercase tracking-wider rounded bg-tertiary-fixed text-on-tertiary-fixed-variant">
-                  NEW
-                </span>
-                <Bookmark className="w-5 h-5 transition-colors text-outline-variant group-hover:text-on-tertiary-container" />
-              </div>
+      {(() => {
+        const displayCases = activeTab === 'My Cases' ? myCases : cases;
+        const displayTotal = activeTab === 'My Cases' ? myTotal : total;
 
-              <h3 className="font-headline text-xl font-bold text-primary mb-2">{c.title}</h3>
+        if (loading && displayCases.length === 0) {
+          return (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-on-tertiary-container" />
+            </div>
+          );
+        }
 
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-4">
-                  <span className="flex items-center gap-1 text-xs font-label text-secondary uppercase tracking-tight">
-                    <Bolt className="w-3 h-3" /> {c.industry}
+        if (activeTab === 'My Cases' && displayCases.length === 0) {
+          return (
+            <div className="flex flex-col items-center justify-center py-24 gap-4 text-secondary">
+              <p className="text-lg font-label">You haven't added any cases yet.</p>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-on-tertiary-container text-white text-sm font-label font-bold rounded-lg hover:opacity-90 transition-opacity"
+              >
+                <Plus className="w-4 h-4" /> Add Your First Case
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {displayCases.map((c) => (
+              <div key={c._id} className="group relative bg-surface-container-lowest p-6 rounded-lg transition-all hover:translate-y-[-4px] border border-transparent hover:border-on-tertiary-container/20">
+                <div className="flex justify-between items-start mb-6">
+                  <span className="px-2 py-1 text-[10px] font-label font-bold uppercase tracking-wider rounded bg-tertiary-fixed text-on-tertiary-fixed-variant">
+                    {activeTab === 'My Cases' ? 'CUSTOM' : 'NEW'}
                   </span>
-                  <span className="flex items-center gap-1 text-xs font-label text-secondary uppercase tracking-tight">
-                    <Calendar className="w-3 h-3" /> {difficultyDuration[c.difficulty] ?? '40 MIN'}
-                  </span>
+                  <Bookmark className="w-5 h-5 transition-colors text-outline-variant group-hover:text-on-tertiary-container" />
                 </div>
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex text-on-tertiary-container">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        className={cn("w-3 h-3", i < Math.min(c.difficulty + 2, 5) ? "fill-current" : "text-outline-variant")}
-                      />
-                    ))}
+
+                <h3 className="font-headline text-xl font-bold text-primary mb-2">{c.title}</h3>
+
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-1 text-xs font-label text-secondary uppercase tracking-tight">
+                      <Bolt className="w-3 h-3" /> {c.industry}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs font-label text-secondary uppercase tracking-tight">
+                      <Calendar className="w-3 h-3" /> {difficultyDuration[c.difficulty] ?? '40 MIN'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex text-on-tertiary-container">
+                      {[...Array(5)].map((_, i) => (
+                        <Star
+                          key={i}
+                          className={cn("w-3 h-3", i < Math.min(c.difficulty + 2, 5) ? "fill-current" : "text-outline-variant")}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Hover Overlay */}
-              <div className="absolute inset-0 bg-primary/95 flex flex-col items-center justify-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
-                <Link
-                  to="/config"
-                  className="w-48 py-3 bg-on-tertiary-container text-white text-center font-bold rounded-md active:scale-95 transition-all"
-                >
-                  Quick Start
-                </Link>
-                <button className="w-48 py-3 bg-transparent border border-white/30 text-white font-medium rounded-md hover:bg-white/10 active:scale-95 transition-all">
-                  Save for Later
-                </button>
+                {/* Hover Overlay */}
+                <div className="absolute inset-0 bg-primary/95 flex flex-col items-center justify-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg">
+                  <Link
+                    to="/config"
+                    state={{ caseId: c._id }}
+                    className="w-48 py-3 bg-on-tertiary-container text-white text-center font-bold rounded-md active:scale-95 transition-all"
+                  >
+                    Quick Start
+                  </Link>
+                  <button className="w-48 py-3 bg-transparent border border-white/30 text-white font-medium rounded-md hover:bg-white/10 active:scale-95 transition-all">
+                    Save for Later
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </section>
-      )}
+            ))}
+          </section>
+        );
+      })()}
 
       {/* Pagination */}
-      <div className="mt-20 flex flex-col items-center gap-6">
-        <p className="text-sm font-label text-secondary uppercase tracking-widest">
-          Showing {cases.length} of {total} available cases
-        </p>
-        {cases.length < total && (
-          <button
-            onClick={handleLoadMore}
-            disabled={loading}
-            className="px-8 py-3 bg-primary text-white font-headline font-bold rounded-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-60 flex items-center gap-2"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Load More Cases
-          </button>
-        )}
-      </div>
+      {(() => {
+        const displayCases = activeTab === 'My Cases' ? myCases : cases;
+        const displayTotal = activeTab === 'My Cases' ? myTotal : total;
+        return (
+          <div className="mt-20 flex flex-col items-center gap-6">
+            <p className="text-sm font-label text-secondary uppercase tracking-widest">
+              Showing {displayCases.length} of {displayTotal} available cases
+            </p>
+            {displayCases.length < displayTotal && (
+              <button
+                onClick={handleLoadMore}
+                disabled={loading}
+                className="px-8 py-3 bg-primary text-white font-headline font-bold rounded-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-60 flex items-center gap-2"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Load More Cases
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
+      {showAddModal && (
+        <AddCaseModal onClose={() => setShowAddModal(false)} onCreated={handleCaseCreated} />
+      )}
     </div>
   );
 }

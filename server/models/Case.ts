@@ -14,6 +14,8 @@ export interface ICase extends Document {
   questions: string[];
   isSeeded: boolean;
   generatedAt: Date;
+  isCustom: boolean;
+  createdBy?: mongoose.Types.ObjectId | null;
 }
 
 const CaseSchema = new Schema<ICase>(
@@ -36,10 +38,13 @@ const CaseSchema = new Schema<ICase>(
     questions: [String],
     isSeeded: { type: Boolean, default: false },
     generatedAt: { type: Date, default: Date.now },
+    isCustom: { type: Boolean, default: false },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );
 
 CaseSchema.index({ type: 1, industry: 1, difficulty: 1 });
+CaseSchema.index({ createdBy: 1 });
 
 export const Case = mongoose.model<ICase>('Case', CaseSchema);
