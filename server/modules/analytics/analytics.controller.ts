@@ -15,7 +15,7 @@ export async function getTrends(req: AuthRequest, res: Response, next: NextFunct
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 10;
     const data = await analyticsService.getTrends(req.userId!, limit);
-    res.json({ trends: data });
+    res.json(data);
   } catch (err) {
     next(err);
   }
