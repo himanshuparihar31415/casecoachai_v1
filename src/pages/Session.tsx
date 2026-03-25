@@ -53,6 +53,7 @@ export default function Session() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const nextPlayTimeRef = useRef(0);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const micMutedRef = useRef(false);
 
   // Scroll transcript to bottom on new messages
   useEffect(() => {
@@ -114,7 +115,7 @@ export default function Session() {
       processor.connect(captureCtx.destination);
 
       processor.onaudioprocess = (e) => {
-        if (ws.readyState !== WebSocket.OPEN || micMuted) return;
+        if (ws.readyState !== WebSocket.OPEN || micMutedRef.current) return;
         const float32 = e.inputBuffer.getChannelData(0);
         const int16 = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
@@ -130,7 +131,7 @@ export default function Session() {
     }).catch(() => {
       // mic permission denied — session continues without audio
     });
-  }, [micMuted]);
+  }, []);
 
   // Load session data + connect WebSocket
   useEffect(() => {
@@ -146,9 +147,14 @@ export default function Session() {
         if (!cancelled) setLoadError('Failed to load session data.');
       });
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const token = getToken();
-    const wsUrl = `${protocol}//${window.location.host}/api/voice?sessionId=${sessionId}&token=${token}`;
+    // If VITE_API_URL is set (e.g. Railway URL) use it directly for WebSocket;
+    // otherwise fall back to window.location.host (works when frontend is served from same server)
+    const apiUrl = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+    const wsBase = apiUrl
+      ? apiUrl.replace(/^http/, 'ws')
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+    const wsUrl = `${wsBase}/api/voice?sessionId=${sessionId}&token=${token}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -328,7 +334,7 @@ export default function Session() {
 
           <div className="flex justify-center gap-6 pt-8">
             <button
-              onClick={() => setMicMuted((m) => !m)}
+              onClick={() => setMicMuted((m) => { micMutedRef.current = !m; return !m; })}
               disabled={wsStatus !== 'ready'}
               className={cn(
                 "w-16 h-16 rounded-full transition-all flex items-center justify-center shadow-sm disabled:opacity-40 disabled:cursor-not-allowed",

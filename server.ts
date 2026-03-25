@@ -10,6 +10,8 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { env } from './server/config/env.js';
 import { connectDB } from './server/config/db.js';
 import { errorHandler } from './server/middleware/errorHandler.js';
@@ -48,6 +50,14 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/analytics', analyticsRoutes);
 
 app.use(errorHandler);
+
+// Serve built frontend — must come after API routes so /api/* is never caught here
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
 
 const wss = new WebSocketServer({ server: httpServer, path: '/api/voice' });
 setupVoiceWebSocket(wss);
