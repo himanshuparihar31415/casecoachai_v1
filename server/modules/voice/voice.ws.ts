@@ -34,8 +34,8 @@ export function setupVoiceWebSocket(wss: WebSocketServer): void {
   wss.on('connection', (clientWs: WebSocket, req: IncomingMessage) => {
     handleConnection(clientWs, req).catch((err) => {
       console.error('Voice WS unhandled error:', err);
-      sendToClient(clientWs, { type: 'error', message: 'Internal voice service error' });
-      clientWs.close();
+      sendToClient(clientWs, { type: 'error', message: String(err?.message ?? 'Internal voice service error') });
+      clientWs.close(4000, String(err?.message ?? 'Internal error').slice(0, 123));
     });
   });
 }

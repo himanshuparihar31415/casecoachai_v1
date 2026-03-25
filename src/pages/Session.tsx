@@ -192,8 +192,9 @@ export default function Session() {
           setWsStatus((s) => s === 'ready' ? 'ended' : s);
         } else {
           setWsStatus('error');
-          const reason = event.reason || `Code ${event.code}`;
-          setWsError(reason);
+          // Prefer the reason string from the server; fall back to the code
+          // Don't overwrite a specific error message already set by an 'error' WS event
+          setWsError((prev) => prev || event.reason || `Connection closed (code ${event.code})`);
         }
       }
     };
