@@ -171,9 +171,11 @@ export default function Session() {
             break;
           case 'session_ended':
             setWsStatus('ended');
+            setIsAiSpeaking(false);
             break;
           case 'error':
             setWsStatus('error');
+            setIsAiSpeaking(false);
             setWsError((msg.message as string) || 'Voice service error');
             break;
         }
@@ -228,7 +230,7 @@ export default function Session() {
       const data = await api.get<{ hint: string }>(`/sessions/${sessionId}/hint`);
       setTranscript((prev) => [...prev, { role: 'interviewer', text: `[HINT] ${data.hint}` }]);
     } catch {
-      // ignore
+      setTranscript((prev) => [...prev, { role: 'interviewer', text: '[HINT] Could not retrieve hint. Please try again.' }]);
     }
   };
 

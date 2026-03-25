@@ -72,7 +72,12 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
       return;
     }
 
-    const caseDoc = session.caseId as unknown as InstanceType<typeof Case>;
+    // Fix 2: null-check caseDoc in case the referenced Case was deleted
+    const caseDoc = session.caseId as unknown as InstanceType<typeof Case> | null;
+    if (!caseDoc) {
+      clientWs.close(4005, 'Case not found');
+      return;
+    }
 
     // Build system prompt
     const systemPrompt = INTERVIEWER_SYSTEM_PROMPT(
@@ -101,7 +106,17 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
 
     let openaiReady = false;
 
+    // Fix 3: timeout if OpenAI never responds
+    const openaiTimeout = setTimeout(() => {
+      if (!openaiReady) {
+        sendToClient(clientWs, { type: 'error', message: 'AI service connection timed out' });
+        openaiWs.terminate();
+        clientWs.close(4006, 'AI connection timeout');
+      }
+    }, 10000);
+
     openaiWs.on('open', () => {
+      clearTimeout(openaiTimeout);
       openaiReady = true;
 
       // Configure the session
@@ -162,11 +177,12 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
                 role: 'interviewer',
                 text: event.transcript,
               });
+              // Fix 1: don't let DB errors crash the WS handler
               await appendTranscript(sessionId, {
                 role: 'interviewer',
                 text: event.transcript,
                 timestamp: new Date(),
-              });
+              }).catch((e) => console.error('appendTranscript (interviewer) failed:', e));
             }
             break;
 
@@ -178,11 +194,12 @@ async function handleConnection(clientWs: WebSocket, req: IncomingMessage): Prom
                 role: 'candidate',
                 text: event.transcript,
               });
+              // Fix 1: don't let DB errors crash the WS handler
               await appendTranscript(sessionId, {
                 role: 'candidate',
                 text: event.transcript,
                 timestamp: new Date(),
-              });
+              }).catch((e) => console.error('appendTranscript (candidate) failed:', e));
             }
             break;
 
