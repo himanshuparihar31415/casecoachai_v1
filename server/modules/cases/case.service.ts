@@ -41,7 +41,7 @@ export async function generateCase(
   difficulty: number
 ): Promise<ICase> {
   const generated = await generateCaseWithAI(type, industry, difficulty);
-  return Case.create({ ...generated, isSeeded: false });
+  return Case.create({ ...generated, type, industry, difficulty, isSeeded: false });
 }
 
 export async function seedCases(): Promise<number> {
